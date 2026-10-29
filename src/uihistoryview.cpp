@@ -90,17 +90,6 @@ void UiHistoryView::Draw()
 
   m_HistoryShowCount = 0;
 
-  // kitty graphics protocol inline image slots
-  struct ImageSlot
-  {
-    std::string path;
-    int cols = 0;
-    int rows = 0;
-    int loRow = 0;
-    int loY = 0;
-  };
-  std::vector<ImageSlot> imageSlots;
-
   bool firstMessage = true;
   int y = m_PaddedH - 1;
   for (auto it = std::next(messageVec.begin(), messageOffset); it != messageVec.end(); ++it)
@@ -136,6 +125,7 @@ void UiHistoryView::Draw()
     }();
 
     std::vector<std::wstring> wlines;
+    std::unordered_map<int, int> imageLinePairs;
     if (!msg.text.empty())
     {
       std::string text = msg.text;
@@ -239,7 +229,8 @@ void UiHistoryView::Draw()
 
       // inline image preview (kitty graphics protocol unicode placeholders)
       static const bool imagePreviewEnabled = UiConfig::GetBool("image_preview_enabled");
-      if (imagePreviewEnabled && (fileInfo.fileStatus == FileStatusDownloaded))
+      if (imagePreviewEnabled && (fileInfo.fileStatus == FileStatusDownloaded) &&
+          (m_PaddedW >= 10) && (m_PaddedH > 3))
       {
         int imgW = 0, imgH = 0;
         if (KittyImg::GetImageDims(fileInfo.filePath, imgW, imgH))
@@ -247,19 +238,24 @@ void UiHistoryView::Draw()
           // terminal cells are ~1:2 (w:h); size cell box to preserve aspect
           int cols = std::min(m_PaddedW, 40);
           int rows = std::max(1, (imgH * cols + imgW) / (2 * imgW));
-          rows = std::min(rows, std::min(12, m_PaddedH - 2));
-
-          int slotIdx = (int)imageSlots.size();
-          ImageSlot slot;
-          slot.path = fileInfo.filePath;
-          slot.cols = cols;
-          slot.rows = rows;
-          slot.loRow = rows;
-          imageSlots.push_back(slot);
-          for (int r = 0; r < rows; ++r)
+          const int maxRows = std::min(12, m_PaddedH - 2);
+          if (rows > maxRows)
           {
-            wlines.insert(wlines.begin() + 1 + r,
-                          L"\x01" + std::to_wstring(slotIdx) + L":" + std::to_wstring(r));
+            rows = maxRows;
+            cols = std::min(m_PaddedW,
+                            std::max(1, (imgW * rows * 2 + imgH / 2) / imgH));
+          }
+
+          int pairNum = KittyImg::EnsureImage(fileInfo.filePath, cols, rows);
+          if (pairNum >= 0)
+          {
+            for (int r = 0; r < rows; ++r)
+            {
+              int idx = 1 + r;
+              wlines.insert(wlines.begin() + idx,
+                            KittyImg::PlaceholderLine(r, cols));
+              imageLinePairs[idx] = pairNum;
+            }
           }
         }
       }
@@ -357,24 +353,27 @@ void UiHistoryView::Draw()
 
     for (auto wline = wlines.rbegin(); wline != wlines.rend(); ++wline)
     {
-      bool isImageMarker = !wline->empty() && (wline->at(0) == L'\x01');
+      bool isImageMarker = !wline->empty() &&
+        (wline->at(0) == (wchar_t)0x10EEEE);
       bool isAttachment = !isImageMarker && (wline->rfind(attachmentIndicator, 0) == 0);
       bool isQuote = (wline->rfind(quoteIndicator, 0) == 0);
       bool isReaction = (reactionLines == 1) && (std::distance(wline, wlines.rbegin()) == 0);
 
+      int imagePair = -1;
       if (isImageMarker)
       {
-        wattron(m_PaddedWin, attributeText | colorPairText);
+        int realIdx = (int)wlines.size() - 1 -
+          (int)std::distance(wlines.rbegin(), wline);
+        auto imgIt = imageLinePairs.find(realIdx);
+        if (imgIt != imageLinePairs.end()) imagePair = imgIt->second;
+      }
 
-        size_t colon = wline->find(L':');
-        int slotIdx = std::stoi(wline->substr(1, colon - 1));
-        int rowIdx = std::stoi(wline->substr(colon + 1));
-        ImageSlot& slot = imageSlots[slotIdx];
-        if (rowIdx < slot.loRow)
-        {
-          slot.loRow = rowIdx;
-          slot.loY = y;
-        }
+      if (isImageMarker)
+      {
+        // always normal attr: a REVERSE/highlight attr would swap fg/bg and
+        // break kitty's image-id color match on the placeholder cells
+        wattron(m_PaddedWin, attributeTextNormal |
+                ((imagePair >= 0) ? COLOR_PAIR(imagePair) : colorPairText));
       }
       else if (isAttachment)
       {
@@ -393,13 +392,18 @@ void UiHistoryView::Draw()
         wattron(m_PaddedWin, attributeText | colorPairText);
       }
 
-      const std::wstring wdisp = isImageMarker ? std::wstring(m_PaddedW, L' ') :
+      // image placeholder lines carry kitty cell data (base + combining
+      // marks per cell); draw as-is without trimming/padding
+      const std::wstring wdisp = isImageMarker ? *wline :
         (isReaction ? *wline : StrUtil::TrimPadWString(*wline, m_PaddedW));
-      mvwaddnwstr(m_PaddedWin, y, 0, wdisp.c_str(), std::min((int)wdisp.size(), m_PaddedW));
+      const int maxWchars = isImageMarker ? (int)wdisp.size() :
+        std::min((int)wdisp.size(), m_PaddedW);
+      mvwaddnwstr(m_PaddedWin, y, 0, wdisp.c_str(), maxWchars);
 
       if (isImageMarker)
       {
-        wattroff(m_PaddedWin, attributeText | colorPairText);
+        wattroff(m_PaddedWin, attributeTextNormal |
+                 ((imagePair >= 0) ? COLOR_PAIR(imagePair) : colorPairText));
       }
       else if (isAttachment)
       {
@@ -494,30 +498,7 @@ void UiHistoryView::Draw()
     firstMessage = false;
   }
 
-  // force full repaint when placeholders exist, so ncurses rewrites cells
-  // previously overwritten by direct kitty graphics escape output
-  if (!imageSlots.empty() || m_ImagesEmitted)
-  {
-    touchwin(m_PaddedWin);
-  }
-
   wrefresh(m_PaddedWin);
-
-  // emit placeholder cells over the drawn blank rows
-  if (!imageSlots.empty())
-  {
-    int begY = 0, begX = 0;
-    getbegyx(m_PaddedWin, begY, begX);
-    for (const ImageSlot& slot : imageSlots)
-    {
-      if (slot.loRow < slot.rows)
-      {
-        KittyImg::DrawCells(begX, begY + slot.loY, slot.cols, slot.rows,
-                            slot.loRow, slot.path);
-      }
-    }
-  }
-  m_ImagesEmitted = !imageSlots.empty();
 }
 
 int UiHistoryView::GetHistoryShowCount()

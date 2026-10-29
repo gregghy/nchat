@@ -28,5 +28,4 @@ private:
   int m_PaddedH = 0;
   int m_PaddedW = 0;
   int m_HistoryShowCount = 0;
-  bool m_ImagesEmitted = false;
 };

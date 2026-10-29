@@ -22,10 +22,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <map>
+#include <cwchar>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include <curses.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_FAILURE_USERMSG
@@ -42,14 +44,20 @@ namespace
 const char* s_EscG = "\033_G";
 const char* s_EscEnd = "\033\\";
 
+// kitty image placeholder base character
+const wchar_t s_PlaceholderChar = (wchar_t)0x10EEEE;
+
 // stable per-path image id (kitty ids are uint32; use 1-based counter)
 std::unordered_map<std::string, int> s_PathIds;
 std::unordered_map<int, std::string> s_IdPaths;
 int s_NextId = 1;
 
-// per id: transmitted? + placement box last emitted
 std::unordered_map<int, bool> s_Transmitted;
 std::unordered_map<int, std::pair<int, int> > s_Placed;
+
+// diacritics that glibc considers combining (wcwidth == 0), built lazily
+std::vector<int> s_UsableDiacritics;
+bool s_DiacriticsInit = false;
 
 int GetId(const std::string& p_Path)
 {
@@ -59,6 +67,26 @@ int GetId(const std::string& p_Path)
   s_PathIds[p_Path] = id;
   s_IdPaths[id] = p_Path;
   return id;
+}
+
+void InitDiacritics()
+{
+  if (s_DiacriticsInit) return;
+  s_DiacriticsInit = true;
+  for (int i = 0; i < s_RowColDiacriticsCount; ++i)
+  {
+    if (wcwidth((wchar_t)s_RowColDiacritics[i]) == 0)
+    {
+      s_UsableDiacritics.push_back(s_RowColDiacritics[i]);
+    }
+  }
+}
+
+wchar_t Diacritic(int p_Idx)
+{
+  InitDiacritics();
+  if ((p_Idx <= 0) || (p_Idx > (int)s_UsableDiacritics.size())) return 0;
+  return (wchar_t)s_UsableDiacritics[p_Idx - 1];
 }
 
 std::string Base64(const unsigned char* p_Data, size_t p_Len)
@@ -78,42 +106,6 @@ std::string Base64(const unsigned char* p_Data, size_t p_Len)
     out += (i + 2 < p_Len) ? tbl[v & 63] : '=';
   }
   return out;
-}
-
-std::string U8(unsigned int p_Cp)
-{
-  std::string s;
-  if (p_Cp < 0x80)
-  {
-    s += (char)p_Cp;
-  }
-  else if (p_Cp < 0x800)
-  {
-    s += (char)(0xC0 | (p_Cp >> 6));
-    s += (char)(0x80 | (p_Cp & 0x3F));
-  }
-  else if (p_Cp < 0x10000)
-  {
-    s += (char)(0xE0 | (p_Cp >> 12));
-    s += (char)(0x80 | ((p_Cp >> 6) & 0x3F));
-    s += (char)(0x80 | (p_Cp & 0x3F));
-  }
-  else
-  {
-    s += (char)(0xF0 | (p_Cp >> 18));
-    s += (char)(0x80 | ((p_Cp >> 12) & 0x3F));
-    s += (char)(0x80 | ((p_Cp >> 6) & 0x3F));
-    s += (char)(0x80 | (p_Cp & 0x3F));
-  }
-  return s;
-}
-
-// diacritic for row/col index; 0 is "no diacritic" (empty)
-std::string Diacritic(int p_Idx)
-{
-  if (p_Idx <= 0) return std::string();
-  if (p_Idx - 1 >= s_RowColDiacriticsCount) return std::string();
-  return U8((unsigned int)s_RowColDiacritics[p_Idx - 1]);
 }
 
 void Transmit(int p_Id)
@@ -156,6 +148,7 @@ void Transmit(int p_Id)
     first = false;
     if (b64.empty()) break;
   }
+  fflush(stdout);
   s_Transmitted[p_Id] = true;
 }
 
@@ -164,13 +157,39 @@ void Place(int p_Id, int p_Cols, int p_Rows)
   std::pair<int, int> box(p_Cols, p_Rows);
   if (s_Placed[p_Id] == box) return;
 
-  // U=1: virtual placement, shown only through unicode placeholders
+  // U=1: virtual placement, shown only through unicode placeholder cells
   std::string esc = s_EscG;
   esc += "q=2,a=p,U=1,i=" + std::to_string(p_Id);
   esc += ",c=" + std::to_string(p_Cols) + ",r=" + std::to_string(p_Rows);
   esc += s_EscEnd;
   fwrite(esc.data(), 1, esc.size(), stdout);
+  fflush(stdout);
   s_Placed[p_Id] = box;
+}
+
+// ncurses color pair whose fg resolves to the image id's 24-bit value;
+// kitty matches placeholder cells to images by their fg color.
+// slots are bounded (palette has 256 entries, theme uses the low range)
+// so the color is re-initialized on every call: palette write + palette
+// read round-trips through kitty, and only images visible in the same
+// draw could collide — far more slots than visible image rows exist.
+int ColorPair(int p_Id)
+{
+  const int base = 200;
+  int avail = COLORS - base;
+  if (avail <= 0) return -1;
+
+  int slot = (p_Id - 1) % avail;
+  int colorIdx = base + slot;
+  int pairIdx = base + slot;
+
+  int r = ((p_Id >> 16) & 0xFF) * 1000 / 255;
+  int g = ((p_Id >> 8) & 0xFF) * 1000 / 255;
+  int b = (p_Id & 0xFF) * 1000 / 255;
+
+  if (init_color(colorIdx, r, g, b) != OK) return -1;
+  if (init_pair(pairIdx, colorIdx, -1) != OK) return -1;
+  return pairIdx;
 }
 
 } // namespace
@@ -196,41 +215,30 @@ bool KittyImg::GetImageDims(const std::string& p_Path, int& p_W, int& p_H)
   return (p_W > 0) && (p_H > 0);
 }
 
-void KittyImg::DrawCells(int p_X, int p_Y, int p_Cols, int p_Rows,
-                         int p_FirstRow, const std::string& p_Path)
+int KittyImg::EnsureImage(const std::string& p_Path, int p_Cols, int p_Rows)
 {
-  if (!Supported() || (p_Cols <= 0) || (p_Rows <= 0) ||
-      (p_FirstRow >= p_Rows)) return;
+  if (!Supported() || (p_Cols <= 0) || (p_Rows <= 0)) return -1;
 
   int id = GetId(p_Path);
   Transmit(id);
-  if (!s_Transmitted[id]) return;
+  if (!s_Transmitted[id]) return -1;
   Place(id, p_Cols, p_Rows);
+  return ColorPair(id);
+}
 
-  // image id encoded as 24-bit fg color on the placeholder cells
-  int r8 = (id >> 16) & 0xFF;
-  int g8 = (id >> 8) & 0xFF;
-  int b8 = id & 0xFF;
-
-  std::string out;
-  out.reserve(p_Rows * p_Cols * 8);
-  out += "\0337"; // save cursor
-  for (int r = p_FirstRow; r < p_Rows; ++r)
+std::wstring KittyImg::PlaceholderLine(int p_Row, int p_Cols)
+{
+  std::wstring ws;
+  ws.reserve((size_t)p_Cols * 3);
+  wchar_t rowD = Diacritic(p_Row);
+  for (int c = 0; c < p_Cols; ++c)
   {
-    out += "\033[" + std::to_string(p_Y + r - p_FirstRow + 1) + ";" +
-           std::to_string(p_X + 1) + "H";
-    out += "\033[38;2;" + std::to_string(r8) + ";" + std::to_string(g8) +
-           ";" + std::to_string(b8) + "m";
-    std::string rowD = Diacritic(r);
-    std::string cell = U8(0x10EEEE) + rowD;
-    for (int c = 0; c < p_Cols; ++c)
-    {
-      out += cell + Diacritic(c);
-    }
+    ws += s_PlaceholderChar;
+    if (rowD) ws += rowD;
+    wchar_t colD = Diacritic(c);
+    if (colD) ws += colD;
   }
-  out += "\033[0m\0338"; // reset color, restore cursor
-  fwrite(out.data(), 1, out.size(), stdout);
-  fflush(stdout);
+  return ws;
 }
 
 void KittyImg::ClearAll()
