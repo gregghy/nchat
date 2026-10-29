@@ -12,6 +12,7 @@
 class UiEntryView;
 class UiHelpView;
 class UiHistoryView;
+struct UiHistoryLineInfo;
 class UiListView;
 class UiListBorderView;
 class UiModel;
@@ -41,6 +42,8 @@ public:
   void SetEntryDirty(bool p_Dirty);
   int GetHistoryShowCount();
   int GetHistoryLines();
+  void GetHistoryScreenRect(int& p_Y, int& p_X, int& p_H, int& p_W);
+  bool GetHistoryLineInfo(int p_Row, UiHistoryLineInfo& p_Info);
   int GetEntryWidth();
   int GetScreenWidth();
   int GetScreenHeight();

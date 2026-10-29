@@ -89,6 +89,7 @@ void UiHistoryView::Draw()
   wbkgd(m_PaddedWin, attributeTextNormal | colorPairTextRecv | ' ');
 
   m_HistoryShowCount = 0;
+  m_LineInfo.clear();
 
   bool firstMessage = true;
   int y = m_PaddedH - 1;
@@ -409,6 +410,7 @@ void UiHistoryView::Draw()
       const int maxWchars = isImageMarker ? (int)wdisp.size() :
         std::min((int)wdisp.size(), m_PaddedW);
       mvwaddnwstr(m_PaddedWin, y, 0, wdisp.c_str(), maxWchars);
+      m_LineInfo[y] = { *it, isQuote };
 
       if (isImageMarker)
       {
@@ -502,6 +504,7 @@ void UiHistoryView::Draw()
 
     std::wstring wdisp = StrUtil::TrimPadWString(wheader, m_PaddedW);
     mvwaddnwstr(m_PaddedWin, y, 0, wdisp.c_str(), std::min((int)wdisp.size(), m_PaddedW));
+    m_LineInfo[y] = { *it, false };
 
     wattroff(m_PaddedWin, attributeName | colorPairName);
 
@@ -520,4 +523,20 @@ void UiHistoryView::Draw()
 int UiHistoryView::GetHistoryShowCount()
 {
   return m_HistoryShowCount;
+}
+
+void UiHistoryView::GetScreenRect(int& p_Y, int& p_X, int& p_H, int& p_W)
+{
+  getbegyx(m_PaddedWin, p_Y, p_X);
+  p_H = m_PaddedH;
+  p_W = m_PaddedW;
+}
+
+bool UiHistoryView::GetLineInfo(int p_Row, UiHistoryLineInfo& p_Info)
+{
+  auto it = m_LineInfo.find(p_Row);
+  if (it == m_LineInfo.end()) return false;
+
+  p_Info = it->second;
+  return true;
 }

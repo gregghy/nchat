@@ -55,6 +55,8 @@ private:
     void OnKeyFocusChat();
     bool EntryTakesHorizontalArrowKey();
     bool GetFocusChat();
+    void OnMouseHistoryClick(int p_ScreenY, int p_ScreenX);
+    void JumpToQuotedForMessage(const std::string& p_MsgId);
     void OnKeyPrevPage();
     void OnKeyNextPage();
     bool OnKeyHomeFetchCache();

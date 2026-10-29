@@ -8,8 +8,15 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 
 #include "uiviewbase.h"
+
+struct UiHistoryLineInfo
+{
+  std::string msgId;
+  bool isQuote = false;
+};
 
 class UiHistoryView : public UiViewBase
 {
@@ -19,6 +26,8 @@ public:
 
   virtual void Draw();
   int GetHistoryShowCount();
+  void GetScreenRect(int& p_Y, int& p_X, int& p_H, int& p_W);
+  bool GetLineInfo(int p_Row, UiHistoryLineInfo& p_Info);
 
 private:
   std::string GetTimeString(int64_t p_TimeSent);
@@ -28,4 +37,5 @@ private:
   int m_PaddedH = 0;
   int m_PaddedW = 0;
   int m_HistoryShowCount = 0;
+  std::unordered_map<int, UiHistoryLineInfo> m_LineInfo;
 };

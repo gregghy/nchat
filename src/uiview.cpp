@@ -205,6 +205,16 @@ int UiView::GetHistoryLines()
   return m_UiHistoryView->H();
 }
 
+void UiView::GetHistoryScreenRect(int& p_Y, int& p_X, int& p_H, int& p_W)
+{
+  return m_UiHistoryView->GetScreenRect(p_Y, p_X, p_H, p_W);
+}
+
+bool UiView::GetHistoryLineInfo(int p_Row, UiHistoryLineInfo& p_Info)
+{
+  return m_UiHistoryView->GetLineInfo(p_Row, p_Info);
+}
+
 int UiView::GetEntryWidth()
 {
   return m_UiEntryView->W();

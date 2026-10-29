@@ -39,6 +39,7 @@
 #include "uikeyinput.h"
 #include "uimessagedialog.h"
 #include "uitextinputdialog.h"
+#include "uihistoryview.h"
 #include "uiview.h"
 
 // ---------------------------------------------------------------------
@@ -4215,6 +4216,43 @@ void UiModel::Impl::GetAvailableEmojis(std::set<std::string>& p_AvailableEmojis,
   LOG_DEBUG("get available reactions %d pending %d", p_AvailableEmojis.size(), p_Pending);
 }
 
+void UiModel::Impl::OnMouseHistoryClick(int p_ScreenY, int p_ScreenX)
+{
+  int hy = 0;
+  int hx = 0;
+  int hh = 0;
+  int hw = 0;
+  m_View->GetHistoryScreenRect(hy, hx, hh, hw);
+
+  if ((p_ScreenY < hy) || (p_ScreenY >= (hy + hh)) ||
+      (p_ScreenX < hx) || (p_ScreenX >= (hx + hw))) return;
+
+  UiHistoryLineInfo info;
+  if (!m_View->GetHistoryLineInfo(p_ScreenY - hy, info)) return;
+  if (!info.isQuote) return;
+
+  AnyUserKeyInput();
+  JumpToQuotedForMessage(info.msgId);
+}
+
+void UiModel::Impl::JumpToQuotedForMessage(const std::string& p_MsgId)
+{
+  const std::string profileId = m_CurrentChat.first;
+  const std::string chatId = m_CurrentChat.second;
+  std::string& oldestMessageId = m_OldestMessageId[profileId][chatId];
+
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
+  auto mit = messages.find(p_MsgId);
+  if (mit == messages.end()) return;
+  if (mit->second.quotedId.empty()) return;
+
+  std::shared_ptr<FindMessageRequest> findMessageRequest = std::make_shared<FindMessageRequest>();
+  findMessageRequest->chatId = chatId;
+  findMessageRequest->lastMsgId = oldestMessageId;
+  findMessageRequest->findMsgId = mit->second.quotedId;
+  SendProtocolRequest(profileId, findMessageRequest);
+}
+
 void UiModel::Impl::OnKeyJumpQuoted()
 {
   AnyUserKeyInput();
@@ -4704,19 +4742,26 @@ void UiModel::KeyHandler(wint_t p_Key)
       std::unique_lock<owned_mutex> lock(m_ModelMutex);
       static wint_t keyUp = UiKeyConfig::GetKey("up");
       static wint_t keyDown = UiKeyConfig::GetKey("down");
-      for (int i = 0; i < 3; ++i)
+      if (mouseEvent.bstate & BUTTON1_PRESSED)
       {
-        if (mouseEvent.bstate & BUTTON4_PRESSED)
+        GetImpl().OnMouseHistoryClick(mouseEvent.y, mouseEvent.x);
+      }
+      else
+      {
+        for (int i = 0; i < 3; ++i)
         {
-          GetImpl().EntryKeyHandler(keyUp);
-        }
-        else if (mouseEvent.bstate & BUTTON5_PRESSED)
-        {
-          GetImpl().EntryKeyHandler(keyDown);
-        }
-        else
-        {
-          break;
+          if (mouseEvent.bstate & BUTTON4_PRESSED)
+          {
+            GetImpl().EntryKeyHandler(keyUp);
+          }
+          else if (mouseEvent.bstate & BUTTON5_PRESSED)
+          {
+            GetImpl().EntryKeyHandler(keyDown);
+          }
+          else
+          {
+            break;
+          }
         }
       }
     }
