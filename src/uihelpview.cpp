@@ -140,7 +140,7 @@ void UiHelpView::Draw()
     std::vector<std::wstring> helpItems;
     helpItems.insert(std::end(helpItems), std::begin(mainPreHelpItems), std::end(mainPreHelpItems));
 
-    AppendHelpItem("up", "SelectMsg", helpItems);
+    AppendHelpItem("select_msg", "SelectMsg", helpItems);
     AppendHelpItem("delete_chat", "DelChat", helpItems);
     AppendHelpItem("archive_chat", "ArcChat", helpItems);
     AppendHelpItem("pin", "Pin", helpItems);
