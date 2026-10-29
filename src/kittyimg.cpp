@@ -56,8 +56,10 @@ const char* s_EscEnd = "\033\\";
 // kitty image placeholder base character
 const wchar_t s_PlaceholderChar = (wchar_t)0x10EEEE;
 
-// ncurses pair base for image-fg pairs (theme uses low pair indices)
-const int s_PairBase = 300;
+// ncurses pair base for image-fg pairs; high enough to never collide with
+// nchat's theme pairs (~110 used). pair indices are applied via wattr_set,
+// which takes the pair as a short — COLOR_PAIR() would mask to 8 bits.
+const int s_PairBase = 1000;
 
 struct ImgRec
 {
@@ -239,8 +241,10 @@ int KittyImg::EnsureImage(const std::string& p_Path, int p_Cols, int p_Rows)
   {
     seq = (int)s_Recs.size() + 1;
     ImgRec rec;
-    rec.lowByte = ((seq - 1) % 255) + 1;
-    rec.msb = (seq - 1) / 255;
+    // lowByte >= 16 keeps ncurses on the 38;5;N fg form (palette indices
+    // 0-15 are emitted as basic 3N/9N SGR); ~71K unique ids with the msb byte
+    rec.lowByte = 16 + ((seq - 1) % 240);
+    rec.msb = (seq - 1) / 240;
     rec.id = (unsigned int)rec.lowByte | ((unsigned int)rec.msb << 24);
     s_Recs.push_back(rec);
     s_PathSeq[p_Path] = seq;

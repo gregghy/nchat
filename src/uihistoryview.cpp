@@ -372,9 +372,17 @@ void UiHistoryView::Draw()
       if (isImageMarker)
       {
         // always normal attr: a REVERSE/highlight attr would swap fg/bg and
-        // break kitty's image-id color match on the placeholder cells
-        wattron(m_PaddedWin, attributeTextNormal |
-                ((imagePair >= 0) ? COLOR_PAIR(imagePair) : colorPairText));
+        // break kitty's image-id color match on the placeholder cells.
+        // wattr_set applies the pair unmasked — COLOR_PAIR() truncated to
+        // 8 bits in chtype cannot carry image pair indices >= 256.
+        if (imagePair >= 0)
+        {
+          wattr_set(m_PaddedWin, attributeTextNormal, (short)imagePair, NULL);
+        }
+        else
+        {
+          wattron(m_PaddedWin, attributeTextNormal | colorPairText);
+        }
       }
       else if (isAttachment)
       {
@@ -403,8 +411,14 @@ void UiHistoryView::Draw()
 
       if (isImageMarker)
       {
-        wattroff(m_PaddedWin, attributeTextNormal |
-                 ((imagePair >= 0) ? COLOR_PAIR(imagePair) : colorPairText));
+        if (imagePair >= 0)
+        {
+          wattr_set(m_PaddedWin, attributeTextNormal, (short)0, NULL);
+        }
+        else
+        {
+          wattroff(m_PaddedWin, attributeTextNormal | colorPairText);
+        }
       }
       else if (isAttachment)
       {
