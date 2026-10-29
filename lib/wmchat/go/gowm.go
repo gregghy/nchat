@@ -1831,6 +1831,21 @@ func (handler *WmEventHandler) ProcessMessageInfo(messageInfo types.MessageInfo)
 			CWmNewContactsNotify(connId, userId, name, phone, isSelf, isAlias, notify)
 			AddContactName(connId, userId, name)
 		}
+	} else if name := SanitizeName(messageInfo.PushName); len(name) > 0 {
+		// no lid->pn mapping yet: use the sender's public push name under
+		// the raw lid id, so the chat shows a name instead of 'xxx@lid'
+		LOG_TRACE(fmt.Sprintf("add lid sender %s %s", userId, name))
+		AddSender(connId, userId, name)
+
+		if GetNamesSynced(connId) {
+			phone := ""
+			isSelf := BoolToInt(false)
+			isAlias := BoolToInt(true)
+			var notify int = NotifyDirect // notify without cache
+			LOG_TRACE(fmt.Sprintf("Call CWmNewContactsNotify lid sender %s %s", userId, name))
+			CWmNewContactsNotify(connId, userId, name, phone, isSelf, isAlias, notify)
+			AddContactName(connId, userId, name)
+		}
 	}
 }
 
