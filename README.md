@@ -1,6 +1,11 @@
 nchat
 =====
 
+> **This is gregghy's custom fork** — branch `custom` adds inline kitty
+> image previews, a two-column layout, focus-mode arrows, mouse support
+> and more. See **[FORK.md](FORK.md)** for the full feature list,
+> keybindings and build workflow.
+
 | **Linux** | **Mac** |
 |-----------|---------|
 | [![Linux](https://github.com/d99kris/nchat/workflows/Linux/badge.svg)](https://github.com/d99kris/nchat/actions?query=workflow%3ALinux) | [![macOS](https://github.com/d99kris/nchat/workflows/macOS/badge.svg)](https://github.com/d99kris/nchat/actions?query=workflow%3AmacOS) |
