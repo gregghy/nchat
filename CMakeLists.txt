@@ -409,6 +409,8 @@ add_custom_command(
 # Application
 add_executable(nchat
   ${COMPOSE_SCRIPT_HEADER}
+  src/kittyimg.cpp
+  src/kittyimg.h
   src/main.cpp
   src/ui.cpp
   src/ui.h

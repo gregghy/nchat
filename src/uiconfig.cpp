@@ -44,6 +44,7 @@ void UiConfig::Init()
     { "file_picker_command", "" },
     { "file_picker_persist_dir", "1" },
     { "help_enabled", "1" },
+    { "image_preview_enabled", "1" },
     { "help_prefix_ctrl", "^" },
     { "help_prefix_meta", "M-" },
     { "home_fetch_all", "0" },
