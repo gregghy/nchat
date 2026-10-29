@@ -58,6 +58,7 @@ void Ui::Init()
   UiConfig::GetBool("linefeed_on_enter") ? nl() : nonl();
   keypad(stdscr, TRUE);
   mousemask(ALL_MOUSE_EVENTS, nullptr);
+  set_escdelay(100);
   curs_set(0);
   timeout(0);
   EmojiList::Init();

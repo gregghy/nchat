@@ -51,6 +51,7 @@ void UiTextInputDialog::KeyHandler(wint_t p_Key)
 {
   static wint_t keyCancel = UiKeyConfig::GetKey("cancel");
   static wint_t keyQuit = UiKeyConfig::GetKey("quit");
+  static wint_t keyEsc = UiKeyConfig::GetKeyCode("KEY_CTRL[");
   static wint_t keyOtherCommandsHelp = UiKeyConfig::GetKey("other_commands_help");
   static wint_t keyOk = UiKeyConfig::GetKey("ok");
   static wint_t keyTerminalFocusIn = UiKeyConfig::GetKey("terminal_focus_in");
@@ -74,7 +75,7 @@ void UiTextInputDialog::KeyHandler(wint_t p_Key)
   {
     m_Model->SetTerminalActive(false);
   }
-  else if (p_Key == keyCancel)
+  else if ((p_Key == keyCancel) || (p_Key == keyEsc))
   {
     m_Result = false;
     m_Running = false;
