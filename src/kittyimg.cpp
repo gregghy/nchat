@@ -38,6 +38,15 @@
 
 #include "kittydiacritics.h"
 
+// kitty unicode placeholder scheme (graphics-protocol doc):
+// - transmit image once (a=t), create one virtual placement (a=p,U=1,c=,r=)
+// - each rendered cell is text: U+10EEEE + row + column + msb diacritics
+// - the cell's foreground color encodes the image id: for 256-color output
+//   (38;5;N) the palette index N IS the low byte of the id; a 3rd diacritic
+//   encodes the most significant byte (id = N | (msb << 24))
+// - all diacritics are emitted per cell: ncurses repaints lines
+//   non-contiguously, so the spec's inherit-from-left rules cannot apply
+
 namespace
 {
 
@@ -47,27 +56,31 @@ const char* s_EscEnd = "\033\\";
 // kitty image placeholder base character
 const wchar_t s_PlaceholderChar = (wchar_t)0x10EEEE;
 
-// stable per-path image id (kitty ids are uint32; use 1-based counter)
-std::unordered_map<std::string, int> s_PathIds;
-std::unordered_map<int, std::string> s_IdPaths;
-int s_NextId = 1;
+// ncurses pair base for image-fg pairs (theme uses low pair indices)
+const int s_PairBase = 300;
 
-std::unordered_map<int, bool> s_Transmitted;
-std::unordered_map<int, std::pair<int, int> > s_Placed;
+struct ImgRec
+{
+  unsigned int id = 0;   // kitty image id: lowByte | (msb << 24)
+  int lowByte = 0;       // id byte 0 == emitted 256-palette fg index
+  int msb = 0;           // id byte 3 == 3rd diacritic value
+  int pairIdx = -1;
+  int cols = 0;
+  int rows = 0;
+  bool transmitted = false;
+};
+
+// path -> 1-based index into s_Recs (stable handle for callers)
+std::unordered_map<std::string, int> s_PathSeq;
+std::vector<ImgRec> s_Recs;
+
+// lowByte (0-255) -> ncurses pair idx, -1 = not created yet
+int s_PairFor[256];
+bool s_PairForInit = false;
 
 // diacritics that glibc considers combining (wcwidth == 0), built lazily
 std::vector<int> s_UsableDiacritics;
 bool s_DiacriticsInit = false;
-
-int GetId(const std::string& p_Path)
-{
-  auto it = s_PathIds.find(p_Path);
-  if (it != s_PathIds.end()) return it->second;
-  int id = s_NextId++;
-  s_PathIds[p_Path] = id;
-  s_IdPaths[id] = p_Path;
-  return id;
-}
 
 void InitDiacritics()
 {
@@ -82,11 +95,12 @@ void InitDiacritics()
   }
 }
 
-wchar_t Diacritic(int p_Idx)
+// diacritic encoding value p_Val (0-based; table[i] encodes number i)
+wchar_t DiacriticForValue(int p_Val)
 {
   InitDiacritics();
-  if ((p_Idx <= 0) || (p_Idx > (int)s_UsableDiacritics.size())) return 0;
-  return (wchar_t)s_UsableDiacritics[p_Idx - 1];
+  if ((p_Val < 0) || (p_Val >= (int)s_UsableDiacritics.size())) return 0;
+  return (wchar_t)s_UsableDiacritics[p_Val];
 }
 
 std::string Base64(const unsigned char* p_Data, size_t p_Len)
@@ -108,19 +122,29 @@ std::string Base64(const unsigned char* p_Data, size_t p_Len)
   return out;
 }
 
-void Transmit(int p_Id)
+void SendEsc(const std::string& p_Esc)
 {
-  if (s_Transmitted[p_Id]) return;
+  fwrite(p_Esc.data(), 1, p_Esc.size(), stdout);
+  fflush(stdout);
+}
 
-  const std::string& path = s_IdPaths[p_Id];
+void DeleteImage(unsigned int p_Id)
+{
+  // d=i deletes the image and all its placements, including virtual ones
+  SendEsc(std::string(s_EscG) + "q=2,a=d,d=i,i=" + std::to_string(p_Id) +
+          s_EscEnd);
+}
+
+bool Transmit(const std::string& p_Path, unsigned int p_Id)
+{
   int w = 0, h = 0, comp = 0;
-  unsigned char* pixels = stbi_load(path.c_str(), &w, &h, &comp, 4);
-  if (!pixels) return;
+  unsigned char* pixels = stbi_load(p_Path.c_str(), &w, &h, &comp, 4);
+  if (!pixels) return false;
 
   int pngLen = 0;
   unsigned char* png = stbi_write_png_to_mem(pixels, w * 4, w, h, 4, &pngLen);
   stbi_image_free(pixels);
-  if (!png) return;
+  if (!png) return false;
 
   std::string b64 = Base64(png, (size_t)pngLen);
   STBIW_FREE(png);
@@ -143,52 +167,40 @@ void Transmit(int p_Id)
     esc += ";";
     esc += b64.substr(pos, n);
     esc += s_EscEnd;
-    fwrite(esc.data(), 1, esc.size(), stdout);
+    SendEsc(esc);
     pos += n;
     first = false;
     if (b64.empty()) break;
   }
-  fflush(stdout);
-  s_Transmitted[p_Id] = true;
+  return true;
 }
 
-void Place(int p_Id, int p_Cols, int p_Rows)
+void Place(unsigned int p_Id, int p_Cols, int p_Rows)
 {
-  std::pair<int, int> box(p_Cols, p_Rows);
-  if (s_Placed[p_Id] == box) return;
-
   // U=1: virtual placement, shown only through unicode placeholder cells
-  std::string esc = s_EscG;
-  esc += "q=2,a=p,U=1,i=" + std::to_string(p_Id);
-  esc += ",c=" + std::to_string(p_Cols) + ",r=" + std::to_string(p_Rows);
-  esc += s_EscEnd;
-  fwrite(esc.data(), 1, esc.size(), stdout);
-  fflush(stdout);
-  s_Placed[p_Id] = box;
+  SendEsc(std::string(s_EscG) + "q=2,a=p,U=1,i=" + std::to_string(p_Id) +
+          ",c=" + std::to_string(p_Cols) + ",r=" + std::to_string(p_Rows) +
+          s_EscEnd);
 }
 
-// ncurses color pair whose fg resolves to the image id's 24-bit value;
-// kitty matches placeholder cells to images by their fg color.
-// the palette entry is written directly via OSC 4 (init_color's 0-1000
-// scale truncates and would not round-trip small ids). slots are bounded
-// (theme colors use the low palette range) and re-initialized per call —
-// far more slots than visible image rows exist.
-int ColorPair(int p_Id)
+// ncurses pair with fg == p_LowByte; kitty reads 38;5;N as id byte N
+int PairFor(int p_LowByte)
 {
-  const int base = 200;
-  int avail = COLORS - base;
-  if (avail <= 0) return -1;
+  if (!s_PairForInit)
+  {
+    s_PairForInit = true;
+    for (int i = 0; i < 256; ++i) s_PairFor[i] = -1;
+  }
 
-  int slot = (p_Id - 1) % avail;
-  int colorIdx = base + slot;
-  int pairIdx = base + slot;
+  int& pairIdx = s_PairFor[p_LowByte];
+  if (pairIdx >= 0) return pairIdx;
 
-  char osc[64];
-  snprintf(osc, sizeof(osc), "\033]4;%d;rgb:%02x/%02x/%02x\033\\",
-           colorIdx, (p_Id >> 16) & 0xFF, (p_Id >> 8) & 0xFF, p_Id & 0xFF);
-  fwrite(osc, 1, strlen(osc), stdout);
-
-  if (init_pair(pairIdx, colorIdx, -1) != OK) return -1;
+  int idx = s_PairBase + p_LowByte;
+  if (init_pair(idx, p_LowByte, -1) != OK)
+  {
+    if (init_pair(idx, p_LowByte, COLOR_BLACK) != OK) return -1;
+  }
+  pairIdx = idx;
   return pairIdx;
 }
 
@@ -215,28 +227,82 @@ bool KittyImg::GetImageDims(const std::string& p_Path, int& p_W, int& p_H)
   return (p_W > 0) && (p_H > 0);
 }
 
+// returns a stable 1-based handle (index into the image table), or -1
 int KittyImg::EnsureImage(const std::string& p_Path, int p_Cols, int p_Rows)
 {
   if (!Supported() || (p_Cols <= 0) || (p_Rows <= 0)) return -1;
+  if (p_Cols > 255 || p_Rows > 255) return -1;
 
-  int id = GetId(p_Path);
-  Transmit(id);
-  if (!s_Transmitted[id]) return -1;
-  Place(id, p_Cols, p_Rows);
-  return ColorPair(id);
+  auto it = s_PathSeq.find(p_Path);
+  int seq;
+  if (it == s_PathSeq.end())
+  {
+    seq = (int)s_Recs.size() + 1;
+    ImgRec rec;
+    rec.lowByte = ((seq - 1) % 255) + 1;
+    rec.msb = (seq - 1) / 255;
+    rec.id = (unsigned int)rec.lowByte | ((unsigned int)rec.msb << 24);
+    s_Recs.push_back(rec);
+    s_PathSeq[p_Path] = seq;
+  }
+  else
+  {
+    seq = it->second;
+  }
+
+  ImgRec& rec = s_Recs[(size_t)seq - 1];
+
+  if (rec.pairIdx < 0) rec.pairIdx = PairFor(rec.lowByte);
+  if (rec.pairIdx < 0) return -1;
+
+  if (!rec.transmitted)
+  {
+    if (!Transmit(p_Path, rec.id)) return -1;
+    rec.transmitted = true;
+  }
+
+  // one virtual placement per image; a different box needs a fresh
+  // placement, which requires retransmission (d=i drops the image data)
+  if ((rec.cols != p_Cols) || (rec.rows != p_Rows))
+  {
+    if (rec.cols > 0)
+    {
+      DeleteImage(rec.id);
+      rec.transmitted = false;
+      if (!Transmit(p_Path, rec.id)) return -1;
+      rec.transmitted = true;
+    }
+    Place(rec.id, p_Cols, p_Rows);
+    rec.cols = p_Cols;
+    rec.rows = p_Rows;
+  }
+
+  return seq;
 }
 
-std::wstring KittyImg::PlaceholderLine(int p_Row, int p_Cols)
+int KittyImg::ImagePair(int p_Seq)
 {
+  if ((p_Seq <= 0) || (p_Seq > (int)s_Recs.size())) return -1;
+  return s_Recs[(size_t)p_Seq - 1].pairIdx;
+}
+
+std::wstring KittyImg::PlaceholderLine(int p_Seq, int p_Row, int p_Cols)
+{
+  if ((p_Seq <= 0) || (p_Seq > (int)s_Recs.size())) return std::wstring();
+
+  const ImgRec& rec = s_Recs[(size_t)p_Seq - 1];
+  wchar_t rowD = DiacriticForValue(p_Row);
+  wchar_t msbD = DiacriticForValue(rec.msb);
+
   std::wstring ws;
-  ws.reserve((size_t)p_Cols * 3);
-  wchar_t rowD = Diacritic(p_Row);
+  ws.reserve((size_t)p_Cols * 4);
   for (int c = 0; c < p_Cols; ++c)
   {
     ws += s_PlaceholderChar;
     if (rowD) ws += rowD;
-    wchar_t colD = Diacritic(c);
+    wchar_t colD = DiacriticForValue(c);
     if (colD) ws += colD;
+    if (msbD) ws += msbD;
   }
   return ws;
 }
@@ -244,16 +310,20 @@ std::wstring KittyImg::PlaceholderLine(int p_Row, int p_Cols)
 void KittyImg::ClearAll()
 {
   if (!Supported()) return;
-  std::string esc = std::string(s_EscG) + "q=2,a=d,d=A" + s_EscEnd;
-  // restore palette slots used for image-id colors
-  for (int i = 200; i < COLORS; ++i)
+  std::string esc;
+  for (const ImgRec& rec : s_Recs)
   {
-    char buf[24];
-    snprintf(buf, sizeof(buf), "\033]104;%d\033\\", i);
-    esc += buf;
+    if (rec.transmitted)
+    {
+      esc += std::string(s_EscG) + "q=2,a=d,d=i,i=" + std::to_string(rec.id) +
+        s_EscEnd;
+    }
   }
-  fwrite(esc.data(), 1, esc.size(), stdout);
-  fflush(stdout);
-  s_Transmitted.clear();
-  s_Placed.clear();
+  if (!esc.empty()) SendEsc(esc);
+  for (ImgRec& rec : s_Recs)
+  {
+    rec.transmitted = false;
+    rec.cols = 0;
+    rec.rows = 0;
+  }
 }

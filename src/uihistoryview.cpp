@@ -246,14 +246,15 @@ void UiHistoryView::Draw()
                             std::max(1, (imgW * rows * 2 + imgH / 2) / imgH));
           }
 
-          int pairNum = KittyImg::EnsureImage(fileInfo.filePath, cols, rows);
+          int imgSeq = KittyImg::EnsureImage(fileInfo.filePath, cols, rows);
+          int pairNum = (imgSeq > 0) ? KittyImg::ImagePair(imgSeq) : -1;
           if (pairNum >= 0)
           {
             for (int r = 0; r < rows; ++r)
             {
               int idx = 1 + r;
               wlines.insert(wlines.begin() + idx,
-                            KittyImg::PlaceholderLine(r, cols));
+                            KittyImg::PlaceholderLine(imgSeq, r, cols));
               imageLinePairs[idx] = pairNum;
             }
           }

@@ -27,13 +27,16 @@ public:
   static bool Supported();
   static bool GetImageDims(const std::string& p_Path, int& p_W, int& p_H);
 
-  // ensures image is transmitted + placed; returns curses color pair attr
-  // encoding the image id for placeholder cells, or -1 on failure
+  // ensures image is transmitted + virtually placed; returns a stable
+  // 1-based handle for the image, or -1 on failure
   static int EnsureImage(const std::string& p_Path, int p_Cols, int p_Rows);
 
+  // ncurses color pair idx whose fg encodes the image id's low byte
+  static int ImagePair(int p_Seq);
+
   // wstring of placeholder cells for one row of an image (kitty unicode
-  // placeholders: U+10EEEE + row/column diacritics)
-  static std::wstring PlaceholderLine(int p_Row, int p_Cols);
+  // placeholders: U+10EEEE + row + column + msb diacritics)
+  static std::wstring PlaceholderLine(int p_Seq, int p_Row, int p_Cols);
 
   static void ClearAll();
 };
