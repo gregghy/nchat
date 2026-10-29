@@ -236,6 +236,8 @@ void UiKeyConfig::Init(bool p_MapKeys)
     { "next_chat", "KEY_TAB" },
     { "prev_chat", "KEY_BTAB" },
     { "select_msg", "\\33\\133\\61\\73\\65\\101" }, // ctrl-up
+    { "focus_list", "KEY_LEFT" },
+    { "focus_chat", "KEY_RIGHT" },
     { "unread_chat", "KEY_CTRLF" },
     { "send_msg", "KEY_CTRLX" },
     { "delete_msg", "KEY_CTRLD" },

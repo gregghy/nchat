@@ -611,6 +611,44 @@ bool UiModel::Impl::EntryTakesArrowKey()
   return !entryStr.empty();
 }
 
+bool UiModel::Impl::EntryTakesHorizontalArrowKey()
+{
+  if (GetEditMessageActive()) return true;
+
+  std::string profileId = m_CurrentChat.first;
+  std::string chatId = m_CurrentChat.second;
+  const std::wstring& entryStr = m_EntryStr[profileId][chatId];
+  return !entryStr.empty();
+}
+
+bool UiModel::Impl::GetFocusChat()
+{
+  return m_FocusChat;
+}
+
+void UiModel::Impl::OnKeyFocusList()
+{
+  m_FocusChat = false;
+
+  SetSelectMessageActive(false);
+  UpdateHistory();
+}
+
+void UiModel::Impl::OnKeyFocusChat()
+{
+  m_FocusChat = true;
+
+  std::string profileId = m_CurrentChat.first;
+  std::string chatId = m_CurrentChat.second;
+  int messageCount = m_Messages[profileId][chatId].size();
+  if (messageCount > 0)
+  {
+    SetSelectMessageActive(true);
+  }
+
+  UpdateHistory();
+}
+
 void UiModel::Impl::OnKeyUnreadChat()
 {
   AnyUserKeyInput();
@@ -4602,6 +4640,8 @@ void UiModel::KeyHandler(wint_t p_Key)
   static wint_t keyNextChat = UiKeyConfig::GetKey("next_chat");
   static wint_t keyPrevChat = UiKeyConfig::GetKey("prev_chat");
   static wint_t keyUnreadChat = UiKeyConfig::GetKey("unread_chat");
+  static wint_t keyFocusList = UiKeyConfig::GetKey("focus_list");
+  static wint_t keyFocusChat = UiKeyConfig::GetKey("focus_chat");
   static wint_t keySelectMsg = UiKeyConfig::GetKey("select_msg");
 
   static wint_t keyQuit = UiKeyConfig::GetKey("quit");
@@ -4721,7 +4761,8 @@ void UiModel::KeyHandler(wint_t p_Key)
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     static wint_t keyUp = UiKeyConfig::GetKey("up");
     static wint_t keyDown = UiKeyConfig::GetKey("down");
-    if (((p_Key == keyUp) || (p_Key == keyDown)) && GetImpl().EntryTakesArrowKey())
+    if (((p_Key == keyUp) || (p_Key == keyDown)) &&
+        (GetImpl().EntryTakesArrowKey() || GetImpl().GetFocusChat()))
     {
       GetImpl().EntryKeyHandler(p_Key);
     }
@@ -4735,13 +4776,38 @@ void UiModel::KeyHandler(wint_t p_Key)
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     static wint_t keyUp = UiKeyConfig::GetKey("up");
     static wint_t keyDown = UiKeyConfig::GetKey("down");
-    if (((p_Key == keyUp) || (p_Key == keyDown)) && GetImpl().EntryTakesArrowKey())
+    if (((p_Key == keyUp) || (p_Key == keyDown)) &&
+        (GetImpl().EntryTakesArrowKey() || GetImpl().GetFocusChat()))
     {
       GetImpl().EntryKeyHandler(p_Key);
     }
     else
     {
       GetImpl().OnKeyPrevChat();
+    }
+  }
+  else if (p_Key == keyFocusList)
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    if (GetImpl().EntryTakesHorizontalArrowKey())
+    {
+      GetImpl().EntryKeyHandler(p_Key);
+    }
+    else
+    {
+      GetImpl().OnKeyFocusList();
+    }
+  }
+  else if (p_Key == keyFocusChat)
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    if (GetImpl().EntryTakesHorizontalArrowKey())
+    {
+      GetImpl().EntryKeyHandler(p_Key);
+    }
+    else
+    {
+      GetImpl().OnKeyFocusChat();
     }
   }
   else if (p_Key == keySelectMsg)

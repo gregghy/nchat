@@ -51,6 +51,10 @@ private:
     void OnKeyUnreadChat();
     void OnKeySelectMsg();
     bool EntryTakesArrowKey();
+    void OnKeyFocusList();
+    void OnKeyFocusChat();
+    bool EntryTakesHorizontalArrowKey();
+    bool GetFocusChat();
     void OnKeyPrevPage();
     void OnKeyNextPage();
     bool OnKeyHomeFetchCache();
@@ -288,6 +292,7 @@ private:
     std::unordered_map<std::string, std::unordered_map<std::string, bool>> m_AvailableReactionsPending;
 
     bool m_SelectMessageActive = false;
+    bool m_FocusChat = false;
     bool m_ListDialogActive = false;
     bool m_FileListDialogActive = false;
     bool m_MessageDialogActive = false;
