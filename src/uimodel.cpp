@@ -4654,7 +4654,34 @@ void UiModel::KeyHandler(wint_t p_Key)
   static wint_t keyAutoCompose = UiKeyConfig::GetKey("auto_compose");
   static wint_t keySelectMention = UiKeyConfig::GetKey("select_mention");
 
-  if (p_Key == keyTerminalResize)
+  static wint_t keyMouse = UiKeyConfig::GetKeyCode("KEY_MOUSE");
+
+  if (p_Key == keyMouse)
+  {
+    MEVENT mouseEvent;
+    if (getmouse(&mouseEvent) == OK)
+    {
+      std::unique_lock<owned_mutex> lock(m_ModelMutex);
+      static wint_t keyUp = UiKeyConfig::GetKey("up");
+      static wint_t keyDown = UiKeyConfig::GetKey("down");
+      for (int i = 0; i < 3; ++i)
+      {
+        if (mouseEvent.bstate & BUTTON4_PRESSED)
+        {
+          GetImpl().EntryKeyHandler(keyUp);
+        }
+        else if (mouseEvent.bstate & BUTTON5_PRESSED)
+        {
+          GetImpl().EntryKeyHandler(keyDown);
+        }
+        else
+        {
+          break;
+        }
+      }
+    }
+  }
+  else if (p_Key == keyTerminalResize)
   {
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     GetImpl().TerminalResize();

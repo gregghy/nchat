@@ -27,6 +27,13 @@ struct DirEntry
   {
   }
 
+  DirEntry(const std::string& p_Name, ssize_t p_Size, time_t p_Mtime)
+    : name(p_Name)
+    , size(p_Size)
+    , mtime(p_Mtime)
+  {
+  }
+
   inline bool IsDir() const
   {
     return (size == -1);
@@ -39,6 +46,7 @@ struct DirEntry
 
   std::string name;
   ssize_t size = 0;
+  time_t mtime = 0;
 };
 
 struct DirEntryCompare
@@ -53,9 +61,13 @@ struct DirEntryCompare
     {
       return p_Lhs.IsDir() > p_Rhs.IsDir();
     }
-    else
+    else if (p_Lhs.IsDir())
     {
       return p_Lhs.name < p_Rhs.name;
+    }
+    else
+    {
+      return (p_Lhs.mtime != p_Rhs.mtime) ? (p_Lhs.mtime > p_Rhs.mtime) : (p_Lhs.name < p_Rhs.name);
     }
   }
 };

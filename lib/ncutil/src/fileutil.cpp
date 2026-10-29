@@ -339,7 +339,10 @@ std::set<DirEntry, DirEntryCompare> FileUtil::ListPaths(const std::string& p_Fol
   const std::vector<apathy::Path>& paths = apathy::Path::listdir(p_Folder);
   for (auto& path : paths)
   {
-    DirEntry fileinfo(path.filename(), path.is_directory() ? -1 : path.size());
+    struct stat st { };
+    const std::string fullPath = p_Folder + "/" + path.filename();
+    stat(fullPath.c_str(), &st);
+    DirEntry fileinfo(path.filename(), path.is_directory() ? -1 : path.size(), st.st_mtime);
     fileinfos.insert(fileinfo);
   }
   return fileinfos;

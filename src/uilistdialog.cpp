@@ -7,6 +7,8 @@
 
 #include "uilistdialog.h"
 
+#include <ncurses.h>
+
 #include "apputil.h"
 #include "numutil.h"
 #include "strutil.h"
@@ -79,6 +81,7 @@ void UiListDialog::KeyHandler(wint_t p_Key)
   static wint_t keyTerminalFocusIn = UiKeyConfig::GetKey("terminal_focus_in");
   static wint_t keyTerminalFocusOut = UiKeyConfig::GetKey("terminal_focus_out");
   static wint_t keyTerminalResize = UiKeyConfig::GetKey("terminal_resize");
+  static wint_t keyMouse = UiKeyConfig::GetKeyCode("KEY_MOUSE");
 
   bool isDirty = true;
   if (p_Key == keyTerminalResize)
@@ -138,6 +141,25 @@ void UiListDialog::KeyHandler(wint_t p_Key)
   else if (p_Key == keyDown)
   {
     m_Index += 1;
+  }
+  else if (p_Key == keyMouse)
+  {
+    MEVENT mouseEvent;
+    if (getmouse(&mouseEvent) == OK)
+    {
+      if (mouseEvent.bstate & BUTTON4_PRESSED)
+      {
+        m_Index -= 3;
+      }
+      else if (mouseEvent.bstate & BUTTON5_PRESSED)
+      {
+        m_Index += 3;
+      }
+      else
+      {
+        isDirty = false;
+      }
+    }
   }
   else if (p_Key == keyHome)
   {
