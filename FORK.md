@@ -8,6 +8,9 @@ kitty + Hyprland setup on Arch.
 - Dev repo lives at `~/progetti/nchat`; packages are built from it via
   `~/.cache/yay/nchat-git/PKGBUILD` whose `source=` points at
   `file:///home/gregghy/progetti/nchat`.
+- All the config referenced below (`nchat/key.conf`, `kitty/*.conf`,
+  `hyprland.lua`, `open-media.sh`, …) lives in the tracked dotfiles repo:
+  [github.com/gregghy/.config](https://github.com/gregghy/.config)
 
 ## Features added on top of upstream
 
