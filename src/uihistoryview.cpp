@@ -235,15 +235,16 @@ void UiHistoryView::Draw()
         int imgW = 0, imgH = 0;
         if (KittyImg::GetImageDims(fileInfo.filePath, imgW, imgH))
         {
-          // terminal cells are ~1:2 (w:h); size cell box to preserve aspect
+          // size cell box to preserve pixel aspect using real cell geometry
+          const float aspect = KittyImg::CellAspect();
           int cols = std::min(m_PaddedW, 40);
-          int rows = std::max(1, (imgH * cols + imgW) / (2 * imgW));
+          int rows = std::max(1, (int)((imgH * cols) / (imgW * aspect) + 0.5f));
           const int maxRows = std::min(12, m_PaddedH - 2);
           if (rows > maxRows)
           {
             rows = maxRows;
             cols = std::min(m_PaddedW,
-                            std::max(1, (imgW * rows * 2 + imgH / 2) / imgH));
+                            std::max(1, (int)((imgW * rows * aspect) / imgH + 0.5f)));
           }
 
           int imgSeq = KittyImg::EnsureImage(fileInfo.filePath, cols, rows);

@@ -24,6 +24,8 @@
 #include <cstring>
 #include <cwchar>
 #include <string>
+#include <sys/ioctl.h>
+#include <unistd.h>
 #include <unordered_map>
 #include <vector>
 
@@ -35,6 +37,10 @@
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+
+#ifdef HAS_WEBP
+#include <webp/decode.h>
+#endif
 
 #include "kittydiacritics.h"
 
@@ -130,6 +136,76 @@ void SendEsc(const std::string& p_Esc)
   fflush(stdout);
 }
 
+// decoded RGBA pixels; frees via the right allocator for its source codec
+struct Pixels
+{
+  unsigned char* data = nullptr;
+  bool webp = false;
+  ~Pixels()
+  {
+    if (!data) return;
+#ifdef HAS_WEBP
+    if (webp) { WebPFree(data); return; }
+#endif
+    stbi_image_free(data);
+  }
+};
+
+#ifdef HAS_WEBP
+std::vector<unsigned char> ReadFile(const std::string& p_Path)
+{
+  std::vector<unsigned char> buf;
+  FILE* f = fopen(p_Path.c_str(), "rb");
+  if (!f) return buf;
+  fseek(f, 0, SEEK_END);
+  long sz = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (sz > 0)
+  {
+    buf.resize((size_t)sz);
+    if (fread(buf.data(), 1, buf.size(), f) != buf.size()) buf.clear();
+  }
+  fclose(f);
+  return buf;
+}
+#endif
+
+bool GetInfo(const std::string& p_Path, int& p_W, int& p_H)
+{
+  int comp = 0;
+  if (stbi_info(p_Path.c_str(), &p_W, &p_H, &comp)) return true;
+#ifdef HAS_WEBP
+  std::vector<unsigned char> buf = ReadFile(p_Path);
+  if (!buf.empty() && WebPGetInfo(buf.data(), buf.size(), &p_W, &p_H)) return true;
+#endif
+  return false;
+}
+
+bool LoadPixels(const std::string& p_Path, Pixels& p_Out, int& p_W, int& p_H)
+{
+  int comp = 0;
+  unsigned char* px = stbi_load(p_Path.c_str(), &p_W, &p_H, &comp, 4);
+  if (px)
+  {
+    p_Out.data = px;
+    return true;
+  }
+#ifdef HAS_WEBP
+  std::vector<unsigned char> buf = ReadFile(p_Path);
+  if (!buf.empty() && WebPGetInfo(buf.data(), buf.size(), &p_W, &p_H))
+  {
+    uint8_t* wpx = WebPDecodeRGBA(buf.data(), buf.size(), &p_W, &p_H);
+    if (wpx)
+    {
+      p_Out.data = wpx;
+      p_Out.webp = true;
+      return true;
+    }
+  }
+#endif
+  return false;
+}
+
 void DeleteImage(unsigned int p_Id)
 {
   // d=i deletes the image and all its placements, including virtual ones
@@ -139,13 +215,12 @@ void DeleteImage(unsigned int p_Id)
 
 bool Transmit(const std::string& p_Path, unsigned int p_Id)
 {
-  int w = 0, h = 0, comp = 0;
-  unsigned char* pixels = stbi_load(p_Path.c_str(), &w, &h, &comp, 4);
-  if (!pixels) return false;
+  int w = 0, h = 0;
+  Pixels pixels;
+  if (!LoadPixels(p_Path, pixels, w, h)) return false;
 
   int pngLen = 0;
-  unsigned char* png = stbi_write_png_to_mem(pixels, w * 4, w, h, 4, &pngLen);
-  stbi_image_free(pixels);
+  unsigned char* png = stbi_write_png_to_mem(pixels.data, w * 4, w, h, 4, &pngLen);
   if (!png) return false;
 
   std::string b64 = Base64(png, (size_t)pngLen);
@@ -221,11 +296,29 @@ bool KittyImg::Supported()
   return supported == 1;
 }
 
+float KittyImg::CellAspect()
+{
+  static float aspect = -1.f;
+  if (aspect < 0.f)
+  {
+    aspect = 2.0f;
+    struct winsize ws;
+    if ((ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0) &&
+        (ws.ws_xpixel > 0) && (ws.ws_ypixel > 0) &&
+        (ws.ws_col > 0) && (ws.ws_row > 0))
+    {
+      float cw = (float)ws.ws_xpixel / (float)ws.ws_col;
+      float ch = (float)ws.ws_ypixel / (float)ws.ws_row;
+      if ((cw > 0.f) && (ch > 0.f)) aspect = ch / cw;
+    }
+  }
+  return aspect;
+}
+
 bool KittyImg::GetImageDims(const std::string& p_Path, int& p_W, int& p_H)
 {
   if (!Supported()) return false;
-  int comp = 0;
-  if (!stbi_info(p_Path.c_str(), &p_W, &p_H, &comp)) return false;
+  if (!GetInfo(p_Path, p_W, p_H)) return false;
   return (p_W > 0) && (p_H > 0);
 }
 

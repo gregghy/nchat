@@ -526,6 +526,11 @@ else()
 endif()
 
 # Linking
+find_library(WEBP_LIBRARY NAMES webp)
+if(WEBP_LIBRARY)
+  target_link_libraries(nchat PUBLIC ${WEBP_LIBRARY})
+  target_compile_definitions(nchat PRIVATE HAS_WEBP=1)
+endif()
 target_link_libraries(nchat PUBLIC ncutil pthread ${CURSES_LIBRARIES} ${CMAKE_DL_LIBS})
 
 # Optionals

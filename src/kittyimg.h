@@ -27,6 +27,9 @@ public:
   static bool Supported();
   static bool GetImageDims(const std::string& p_Path, int& p_W, int& p_H);
 
+  // terminal cell aspect (cell pixel height / width), ~2.0 typical
+  static float CellAspect();
+
   // ensures image is transmitted + virtually placed; returns a stable
   // 1-based handle for the image, or -1 on failure
   static int EnsureImage(const std::string& p_Path, int p_Cols, int p_Rows);
