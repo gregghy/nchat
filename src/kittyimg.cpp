@@ -169,10 +169,10 @@ void Place(int p_Id, int p_Cols, int p_Rows)
 
 // ncurses color pair whose fg resolves to the image id's 24-bit value;
 // kitty matches placeholder cells to images by their fg color.
-// slots are bounded (palette has 256 entries, theme uses the low range)
-// so the color is re-initialized on every call: palette write + palette
-// read round-trips through kitty, and only images visible in the same
-// draw could collide — far more slots than visible image rows exist.
+// the palette entry is written directly via OSC 4 (init_color's 0-1000
+// scale truncates and would not round-trip small ids). slots are bounded
+// (theme colors use the low palette range) and re-initialized per call —
+// far more slots than visible image rows exist.
 int ColorPair(int p_Id)
 {
   const int base = 200;
@@ -183,11 +183,11 @@ int ColorPair(int p_Id)
   int colorIdx = base + slot;
   int pairIdx = base + slot;
 
-  int r = ((p_Id >> 16) & 0xFF) * 1000 / 255;
-  int g = ((p_Id >> 8) & 0xFF) * 1000 / 255;
-  int b = (p_Id & 0xFF) * 1000 / 255;
+  char osc[64];
+  snprintf(osc, sizeof(osc), "\033]4;%d;rgb:%02x/%02x/%02x\033\\",
+           colorIdx, (p_Id >> 16) & 0xFF, (p_Id >> 8) & 0xFF, p_Id & 0xFF);
+  fwrite(osc, 1, strlen(osc), stdout);
 
-  if (init_color(colorIdx, r, g, b) != OK) return -1;
   if (init_pair(pairIdx, colorIdx, -1) != OK) return -1;
   return pairIdx;
 }
@@ -245,6 +245,13 @@ void KittyImg::ClearAll()
 {
   if (!Supported()) return;
   std::string esc = std::string(s_EscG) + "q=2,a=d,d=A" + s_EscEnd;
+  // restore palette slots used for image-id colors
+  for (int i = 200; i < COLORS; ++i)
+  {
+    char buf[24];
+    snprintf(buf, sizeof(buf), "\033]104;%d\033\\", i);
+    esc += buf;
+  }
   fwrite(esc.data(), 1, esc.size(), stdout);
   fflush(stdout);
   s_Transmitted.clear();
